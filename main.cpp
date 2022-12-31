@@ -12,6 +12,7 @@
 #include "nmea/gga.h"
 #include "nmea/gll.h"
 #include "nmea/vtg.h"
+#include "ais/ais_utils.h"
 
 #include "nmea/sentence.h"
 
@@ -203,7 +204,28 @@ void startStop (HWND wnd) {
                     sentences.push_back (nmea::builder::Vtg (ctx->cog, ctx->sog));
                 }
                 if (ctx->useAis) {
+                    AIS::Target ownShip;
+                    memset (& ownShip, 0, sizeof (ownShip));
 
+                    ownShip.lat = ctx->lat;
+                    ownShip.lon = ctx->lon;
+                    ownShip.sog = ctx->sog;
+                    ownShip.cog = ctx->cog;
+                    ownShip.id = 987654321;
+                    
+                    strcpy (ownShip.callSign, "SIMUL");
+                    strcpy (ownShip.name, "SIMULATOR@@@@@@@@@@");
+
+                    unsigned char buffer [500];
+                    char data [360];
+                    std::vector<std::string> vdms;
+
+                    AIS::buildPositionReport (buffer, & ownShip);
+                    AIS::encodeString (buffer, data, 28);
+                    AIS::buildVDM (data, vdms, 28);
+                    for (auto sentence: vdms) {
+                        addString (sentence.c_str());    
+                    }
                 }
                 for (auto& sentence: sentences) {
                     addString (sentence.compose().c_str());
