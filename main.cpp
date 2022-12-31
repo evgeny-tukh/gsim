@@ -8,111 +8,14 @@
 #include <vector>
 #include <string>
 #include "lat_lon.h"
+#include "nmea/hdt.h"
+#include "nmea/gga.h"
+#include "nmea/gll.h"
+#include "nmea/vtg.h"
+
+#include "nmea/sentence.h"
 
 void onModeChange (HWND);
-
-class Sentence: public std::vector<std::string> {
-    public:
-        Sentence (
-            bool _isSixBitEncoded,
-            const char *_talkerID,
-            const char *_type
-        ): isSixBitEncoded (_isSixBitEncoded), type (_type), talkerID (_talkerID) {
-            resize (1);
-            (*this) [0] += isSixBitEncoded ? '!' : '$';
-            (*this) [0] += talkerID;
-            (*this) [0] += type;
-        }
-
-        void setAsUtc (size_t index, time_t utc = 0) {
-            if (!utc) utc = time (nullptr);
-            tm *now = localtime (& utc);
-            char value [20];
-            sprintf (value, "%02d%02d%02d00", now->tm_hour, now->tm_min, now->tm_sec);
-            (*this) [index] = value;
-        }
-
-        void setAsInt (size_t index, int value) {
-            (*this) [index] = std::to_string (value);
-        }
-
-        void setAsChar (size_t index, char value) {
-            (*this) [index].clear ();
-            (*this) [index] += value;
-        }
-
-        void setAsAngle (size_t index, double value) {
-            char angle [10];
-            sprintf (angle, "%05.1f", value);
-            (*this) [index] = angle;
-        }
-
-        void setAsCoord (size_t start, double value, bool lat) {
-            char angle [10];
-            double absValue = value >= 0.0 ? value : - value;
-            int deg = (int) absValue;
-            size_t hsIndex = value >= 0.0 ? 0 : 1;
-            double min = (absValue - (double) deg) *60.0;
-            auto fmt = lat ? "%02d%06.3f" : "%03d%06.3f";
-            sprintf (angle, fmt, deg, min);
-            (*this) [start] = angle;
-            (*this) [start+1] = (lat ? "NS" : "EW") [hsIndex];
-        }
-
-        void setAsFloat (size_t index, double value) {
-            char angle [10];
-            sprintf (angle, "%.1f", value);
-            (*this) [index] = angle;
-        }
-
-        std::string compose () {
-            auto int2hex = [] (uint8_t digit) -> char {
-                if (digit < 10) return '0'+ digit;
-                if (digit < 16) return 'A'+ digit - 10;
-                return '\0';
-            };
-            std::string result;
-            for (auto& field: *this) {
-                if (!result.empty ()) result += ',';
-                result += field;
-            }
-            uint8_t crc = result [0];
-            for (size_t i = 1; i > result.length(); ++ i) {
-                crc ^= (uint8_t) result [i];
-            }
-            result += '*';
-            result += int2hex (crc >> 4);
-            result += int2hex (crc & 15);
-            result += "\r\n";
-            return result;
-        }
-
-    private:
-        std::string talkerID, type;
-        bool isSixBitEncoded;
-};
-
-class Hdt: public Sentence {
-    public:
-        Hdt (double hdg): Sentence (false, "GY", "HDT") {
-            resize (3);
-            setAsAngle (1, hdg);
-            setAsChar (2, 'T');
-        }
-};
-
-class Gga: public Sentence {
-    public:
-        Gga (double lat, double lon, char qualityIndicator = '2'): Sentence (false, "GP", "GGA") {
-            resize (15);
-            setAsUtc (1);
-            setAsCoord (2, lat, true);
-            setAsCoord (4, lon, false);
-            setAsChar (6, qualityIndicator);
-            setAsChar (10, 'M');
-            setAsChar (12, 'M');
-        }
-};
 
 struct Ctx {
     HWND portCtl, baudCtl, useGpsCtl, useGyroCtl, useAisCtl, startStopCtl, terminal, sogCtl, cogCtl, hdgCtl;
@@ -163,7 +66,7 @@ void initMainWnd (HWND wnd, Cary::Window *wndInst) {
     ctx->useGyroCtl = wndInst->addControl ("BUTTON", 100, 230, 75, 25, BS_PUSHLIKE| BS_AUTOCHECKBOX | WS_VISIBLE, IDC_USE_GYRO, "Use Gyro");
     ctx->useAisCtl = wndInst->addControl ("BUTTON", 20, 260, 75, 25, BS_PUSHLIKE| BS_AUTOCHECKBOX | WS_VISIBLE, IDC_USE_AIS, "Use AIS");
     ctx->startStopCtl = wndInst->addControl ("BUTTON", 100, 260, 75, 25, WS_VISIBLE | WS_BORDER | BS_CHECKBOX | BS_PUSHLIKE, IDC_START_STOP, "Start");
-    ctx->terminal = wndInst->addControl ("LISTBOX", 210, 20, 360, 300, WS_VISIBLE | WS_VSCROLL | WS_BORDER, IDC_TERMINAL);
+    ctx->terminal = wndInst->addControl ("LISTBOX", 210, 20, 360, 300, WS_VISIBLE | WS_VSCROLL | WS_BORDER | LBS_DISABLENOSCROLL, IDC_TERMINAL);
 
     double lat = 59.5, lon = 29.5;
     ctx->latCtl = new LatLonEditor (wnd, 20, 170, & lat, true);
@@ -208,7 +111,11 @@ void sendSentence (HWND wnd, char *sentence) {
     auto ctx = (Ctx *) GetWindowLongPtr (wnd, GWLP_USERDATA);
     DWORD bytesWritten;
     WriteFile (ctx->port, sentence, strlen (sentence), &bytesWritten, nullptr);
-    SendDlgItemMessage (wnd, IDC_TERMINAL, LB_ADDSTRING, 0, (LPARAM) sentence);
+    if (SendDlgItemMessage (wnd, IDC_TERMINAL, LB_GETCOUNT, 0, 0) > 100) {
+        SendDlgItemMessage (wnd, IDC_TERMINAL, LB_RESETCONTENT, 0, 0);
+    }
+    auto item = SendDlgItemMessage (wnd, IDC_TERMINAL, LB_ADDSTRING, 0, (LPARAM) sentence);
+    SendDlgItemMessage (wnd, IDC_TERMINAL, LB_SETCURSEL, item, 0);
 }
 
 void init (HWND wnd) {
@@ -268,17 +175,41 @@ void startStop (HWND wnd) {
         SetDlgItemText (wnd, IDC_START_STOP, "Start");
     } else {
         auto addString = [ctx] (const char *string) {
-            SendMessage (ctx->terminal, LB_ADDSTRING, 0, (LPARAM) string);
+            auto item = SendMessage (ctx->terminal, LB_ADDSTRING, 0, (LPARAM) string);
+            if (item > 100) {
+                SendMessage (ctx->terminal, LB_RESETCONTENT, 0, 0);
+                item = SendMessage (ctx->terminal, LB_ADDSTRING, 0, (LPARAM) string);
+            }
+            SendMessage (ctx->terminal, LB_SETCURSEL, item, 0);
         };
         ctx->running = true;
+        ctx->lat = ctx->latCtl->getValue ();
+        ctx->lon = ctx->lonCtl->getValue ();
+        ctx->hdg = GetDlgItemInt (wnd, IDC_HDG, nullptr, false);
+        ctx->cog = GetDlgItemInt (wnd, IDC_COG, nullptr, false);
+        ctx->sog = GetDlgItemInt (wnd, IDC_SOG, nullptr, false);
+        ctx->useAis = SendMessage (ctx->useAisCtl, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        ctx->useGps = SendMessage (ctx->useAisCtl, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        ctx->useGyro = SendMessage (ctx->useAisCtl, BM_GETCHECK, 0, 0) == BST_CHECKED;
         ctx->worker = new std::thread ([addString] (Ctx *ctx) {
             while (ctx->running) {
-                Hdt hdt (ctx->hdg);
-                Gga gga (ctx->lat, ctx->lon);
-                addString (hdt.compose().c_str());
-                addString (gga.compose().c_str());
+                std::vector<nmea::builder::Sentence> sentences;
+                if (ctx->useGyro) {
+                    sentences.push_back (nmea::builder::Hdt (ctx->hdg));
+                }
+                if (ctx->useGps) {
+                    sentences.push_back (nmea::builder::Gga (ctx->lat, ctx->lon));
+                    sentences.push_back (nmea::builder::Gll (ctx->lat, ctx->lon));
+                    sentences.push_back (nmea::builder::Vtg (ctx->cog, ctx->sog));
+                }
+                if (ctx->useAis) {
 
-                std::this_thread::sleep_for (std::chrono::milliseconds (10));
+                }
+                for (auto& sentence: sentences) {
+                    addString (sentence.compose().c_str());
+                }
+
+                std::this_thread::sleep_for (std::chrono::milliseconds (100));
             }
         }, ctx);
         CheckDlgButton (wnd, IDC_START_STOP, BST_CHECKED);
@@ -299,9 +230,9 @@ void onCommand (HWND wnd, WPARAM wp, LPARAM lp) {
         case IDC_USE_AIS:
             ctx->useAis = SendMessage (ctx->useAisCtl, BM_GETCHECK, 0, 0) == BST_CHECKED; break;
         case IDC_USE_GPS:
-            ctx->useGps = SendMessage (ctx->useAisCtl, BM_GETCHECK, 0, 0) == BST_CHECKED; break;
+            ctx->useGps = SendMessage (ctx->useGpsCtl, BM_GETCHECK, 0, 0) == BST_CHECKED; break;
         case IDC_USE_GYRO:
-            ctx->useGyro = SendMessage (ctx->useAisCtl, BM_GETCHECK, 0, 0) == BST_CHECKED; break;
+            ctx->useGyro = SendMessage (ctx->useGyroCtl, BM_GETCHECK, 0, 0) == BST_CHECKED; break;
         case IDC_START_STOP:
             startStop (wnd); break;
         case IDC_PORT:

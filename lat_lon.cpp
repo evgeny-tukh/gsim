@@ -54,6 +54,6 @@ double LatLonEditor::getValue () {
     char deg[20], min[20];
     GetWindowText (degCtl, deg, sizeof (deg));
     GetWindowText (minCtl, min, sizeof (min));
-    double val = atof (deg) + atof (min)/ 60.0;
+    double val = atof (deg) + atof (min) / 60.0;
     return SendMessage (hsCtl, CB_GETCURSEL, 0, 0) == 0 ? val : -val;
 }
