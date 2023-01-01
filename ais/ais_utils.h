@@ -76,7 +76,7 @@ namespace AIS
     void smartEncodeAndStore (byte *destBuffer, int& destBit, word source, const int count);
     void smartEncodeAndStore (byte *destBuffer, int& destBit, dword source, const int count);
 
-    void buildVDM (const char *, std::strings&, const size_t, const int fillBits = 0);
+    void buildVDM (const char *, std::strings&, const size_t, const int fillBits = 0, bool ownShip = false);
 
     const int buildImoNumber (const int id)
     {
@@ -97,7 +97,7 @@ namespace AIS
     }
 }
 
-void AIS::buildVDM (const char *data, std::strings& sentences, const size_t size, const int fillBits)
+void AIS::buildVDM (const char *data, std::strings& sentences, const size_t size, const int fillBits, bool ownShip)
 {
     if (data)
     {
@@ -109,7 +109,7 @@ void AIS::buildVDM (const char *data, std::strings& sentences, const size_t size
         if (size <= 63)
         {
             // Put all the data to the single sentence
-            sprintf (format, "!AIVDM,1,1,%d,A,%s,%d*%%02X\r\n", (seqNo ++) % 10, data, fillBits);
+            sprintf (format, "!AIVD%c,1,1,%d,A,%s,%d*%%02X\r\n", ownShip ? 'O' : 'M', (seqNo ++) % 10, data, fillBits);
             sprintf (buffer, format, calcCRC (format));
 
             sentences.push_back (buffer);
@@ -124,8 +124,7 @@ void AIS::buildVDM (const char *data, std::strings& sentences, const size_t size
             {
                 memset (dataPart, 0, sizeof (dataPart));
                 strncpy (dataPart, data + i, sizeof (dataPart) - 1);
-                sprintf (format, "!AIVDM,%d,%d,%d,A,%s,%d*%%02X\r\n",
-                         k, j, seqNo % 10, dataPart, i < (size - 1) ? 0 : fillBits);
+                sprintf (format, "!AIVD%c,%d,%d,%d,A,%s,%d*%%02X\r\n", ownShip ? 'O' : 'M', k, j, seqNo % 10, dataPart, i < (size - 1) ? 0 : fillBits);
                 sprintf (buffer, format, calcCRC (format));
 
                 sentences.push_back (buffer);
@@ -291,7 +290,7 @@ byte *AIS::buildPositionReport (byte *buffer, Target *target, const int retransm
     smartEncodeAndStore (buffer, count, (dword) (target->lon * 600000.0), 28);
     smartEncodeAndStore (buffer, count, (dword) (target->lat * 600000.0), 27);
     smartEncodeAndStore (buffer, count, (word) (target->cog * 10.0f), 12);
-    smartEncodeAndStore (buffer, count, (word) target->cog, 9);
+    smartEncodeAndStore (buffer, count, (word) target->hdg, 9);
     smartEncodeAndStore (buffer, count, (byte) 0, 6);
     smartEncodeAndStore (buffer, count, (byte) 0, 4);
     smartEncodeAndStore (buffer, count, (byte) 0, 1);

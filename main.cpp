@@ -19,11 +19,11 @@
 void onModeChange (HWND);
 
 struct Ctx {
-    HWND portCtl, baudCtl, useGpsCtl, useGyroCtl, useAisCtl, startStopCtl, terminal, sogCtl, cogCtl, hdgCtl;
+    HWND portCtl, baudCtl, useGpsCtl, useGyroCtl, useAisCtl, startStopCtl, terminal, sogCtl, cogCtl, hdgCtl, useAisPosCtl, useAisSogCtl, useAisCogCtl, useAisHdgCtl;
     LatLonEditor *latCtl, *lonCtl;
     HANDLE port;
     std::thread *worker;
-    bool running, useAis, useGps, useGyro;
+    bool running, useAis, useGps, useGyro, useAisPos, useAisSog, useAisCog, useAisHdg;
     int hdg, cog, sog;
     double lat, lon;
 
@@ -35,6 +35,13 @@ struct Ctx {
         }
     }
 };
+
+void enableAisDataFields (Ctx *ctx, bool enable) {
+    EnableWindow (ctx->useAisHdgCtl, enable);
+    EnableWindow (ctx->useAisCogCtl, enable);
+    EnableWindow (ctx->useAisSogCtl, enable);
+    EnableWindow (ctx->useAisPosCtl, enable);
+}
 
 void initMainWnd (HWND wnd, Cary::Window *wndInst) {
     tools::strings ports;
@@ -65,13 +72,19 @@ void initMainWnd (HWND wnd, Cary::Window *wndInst) {
 
     ctx->useGpsCtl = wndInst->addControl ("BUTTON", 20, 230, 75, 25, BS_PUSHLIKE| BS_AUTOCHECKBOX | WS_VISIBLE, IDC_USE_GPS, "Use GPS");
     ctx->useGyroCtl = wndInst->addControl ("BUTTON", 100, 230, 75, 25, BS_PUSHLIKE| BS_AUTOCHECKBOX | WS_VISIBLE, IDC_USE_GYRO, "Use Gyro");
-    ctx->useAisCtl = wndInst->addControl ("BUTTON", 20, 260, 75, 25, BS_PUSHLIKE| BS_AUTOCHECKBOX | WS_VISIBLE, IDC_USE_AIS, "Use AIS");
-    ctx->startStopCtl = wndInst->addControl ("BUTTON", 100, 260, 75, 25, WS_VISIBLE | WS_BORDER | BS_CHECKBOX | BS_PUSHLIKE, IDC_START_STOP, "Start");
+    ctx->useAisCtl = wndInst->addControl ("BUTTON", 20, 260, 155, 25, BS_PUSHLIKE| BS_AUTOCHECKBOX | WS_VISIBLE, IDC_USE_AIS, "Use AIS");
+    ctx->useAisHdgCtl = wndInst->addControl ("BUTTON", 20, 290, 75, 25, BS_PUSHLIKE| BS_AUTOCHECKBOX | WS_VISIBLE, IDC_AIS_HDG, "AIS HDG");
+    ctx->useAisCogCtl = wndInst->addControl ("BUTTON", 100, 290, 75, 25, BS_PUSHLIKE| BS_AUTOCHECKBOX | WS_VISIBLE, IDC_AIS_COG, "AIS COG");
+    ctx->useAisPosCtl = wndInst->addControl ("BUTTON", 20, 320, 75, 25, BS_PUSHLIKE| BS_AUTOCHECKBOX | WS_VISIBLE, IDC_AIS_POS, "AIS POS");
+    ctx->useAisSogCtl = wndInst->addControl ("BUTTON", 100, 320, 75, 25, BS_PUSHLIKE| BS_AUTOCHECKBOX | WS_VISIBLE, IDC_AIS_SOG, "AIS SOG");
+    ctx->startStopCtl = wndInst->addControl ("BUTTON", 20, 350, 155, 25, WS_VISIBLE | WS_BORDER | BS_CHECKBOX | BS_PUSHLIKE, IDC_START_STOP, "Start");
     ctx->terminal = wndInst->addControl ("LISTBOX", 210, 20, 360, 300, WS_VISIBLE | WS_VSCROLL | WS_BORDER | LBS_DISABLENOSCROLL, IDC_TERMINAL);
 
     double lat = 59.5, lon = 29.5;
     ctx->latCtl = new LatLonEditor (wnd, 20, 170, & lat, true);
     ctx->lonCtl = new LatLonEditor (wnd, 20, 200, & lon, false);
+
+    enableAisDataFields (ctx, false);
 }
 
 void checkOpenPort (HWND wnd) {
@@ -182,7 +195,10 @@ void startStop (HWND wnd) {
                 item = SendMessage (ctx->terminal, LB_ADDSTRING, 0, (LPARAM) string);
             }
             SendMessage (ctx->terminal, LB_SETCURSEL, item, 0);
+            unsigned long bytesWritten = 0;
+            WriteFile (ctx->port, string, strlen (string), &bytesWritten, nullptr);
         };
+        checkOpenPort (wnd);
         ctx->running = true;
         ctx->lat = ctx->latCtl->getValue ();
         ctx->lon = ctx->lonCtl->getValue ();
@@ -190,8 +206,12 @@ void startStop (HWND wnd) {
         ctx->cog = GetDlgItemInt (wnd, IDC_COG, nullptr, false);
         ctx->sog = GetDlgItemInt (wnd, IDC_SOG, nullptr, false);
         ctx->useAis = SendMessage (ctx->useAisCtl, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        ctx->useGps = SendMessage (ctx->useAisCtl, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        ctx->useGyro = SendMessage (ctx->useAisCtl, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        ctx->useAisHdg = SendMessage (ctx->useAisHdgCtl, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        ctx->useAisCog = SendMessage (ctx->useAisCogCtl, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        ctx->useAisSog = SendMessage (ctx->useAisSogCtl, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        ctx->useAisPos = SendMessage (ctx->useAisPosCtl, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        ctx->useGps = SendMessage (ctx->useGpsCtl, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        ctx->useGyro = SendMessage (ctx->useGyroCtl, BM_GETCHECK, 0, 0) == BST_CHECKED;
         ctx->worker = new std::thread ([addString] (Ctx *ctx) {
             while (ctx->running) {
                 std::vector<nmea::builder::Sentence> sentences;
@@ -207,10 +227,11 @@ void startStop (HWND wnd) {
                     AIS::Target ownShip;
                     memset (& ownShip, 0, sizeof (ownShip));
 
-                    ownShip.lat = ctx->lat;
-                    ownShip.lon = ctx->lon;
-                    ownShip.sog = ctx->sog;
-                    ownShip.cog = ctx->cog;
+                    ownShip.lat = ctx->useAisPos ? ctx->lat : AIS::DataFlags::NO_LAT;
+                    ownShip.lon = ctx->useAisPos ? ctx->lon : AIS::DataFlags::NO_LON;
+                    ownShip.sog = ctx->useAisSog ? ctx->sog : AIS::DataFlags::NO_SOG;
+                    ownShip.cog = ctx->useAisCog ? ctx->cog : AIS::DataFlags::NO_SOG;
+                    ownShip.hdg = ctx->useAisHdg ? ctx->hdg : AIS::DataFlags::NO_HDG;
                     ownShip.id = 987654321;
                     
                     strcpy (ownShip.callSign, "SIMUL");
@@ -222,7 +243,7 @@ void startStop (HWND wnd) {
 
                     AIS::buildPositionReport (buffer, & ownShip);
                     AIS::encodeString (buffer, data, 28);
-                    AIS::buildVDM (data, vdms, 28);
+                    AIS::buildVDM (data, vdms, 28, 0, true);
                     for (auto sentence: vdms) {
                         addString (sentence.c_str());    
                     }
@@ -250,7 +271,17 @@ void onCommand (HWND wnd, WPARAM wp, LPARAM lp) {
         case IDC_SOG:
             ctx->sog = GetDlgItemInt (wnd, IDC_SOG, nullptr, false); break;
         case IDC_USE_AIS:
-            ctx->useAis = SendMessage (ctx->useAisCtl, BM_GETCHECK, 0, 0) == BST_CHECKED; break;
+            ctx->useAis = SendMessage (ctx->useAisCtl, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            enableAisDataFields (ctx, ctx->useAis);
+            break;
+        case IDC_AIS_HDG:
+            ctx->useAisHdg = SendMessage (ctx->useAisHdgCtl, BM_GETCHECK, 0, 0) == BST_CHECKED; break;
+        case IDC_AIS_COG:
+            ctx->useAisCog = SendMessage (ctx->useAisCogCtl, BM_GETCHECK, 0, 0) == BST_CHECKED; break;
+        case IDC_AIS_SOG:
+            ctx->useAisSog = SendMessage (ctx->useAisSogCtl, BM_GETCHECK, 0, 0) == BST_CHECKED; break;
+        case IDC_AIS_POS:
+            ctx->useAisPos = SendMessage (ctx->useAisPosCtl, BM_GETCHECK, 0, 0) == BST_CHECKED; break;
         case IDC_USE_GPS:
             ctx->useGps = SendMessage (ctx->useGpsCtl, BM_GETCHECK, 0, 0) == BST_CHECKED; break;
         case IDC_USE_GYRO:
@@ -277,7 +308,7 @@ int WINAPI WinMain (HINSTANCE inst, HINSTANCE prevInst, char *cmdLine, int showC
     cls->registerCls ();
     Cary::WinDef mainWinDef ("GeneralSim", "General Simulator");
     mainWinDef.width = 600;
-    mainWinDef.height = 360;
+    mainWinDef.height = 500;
     
     auto mainWnd = cls->createWnd (
         &mainWinDef,

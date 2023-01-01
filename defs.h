@@ -10,4 +10,7 @@
 #define IDC_COG         107
 #define IDC_SOG         108
 #define IDC_HDG         109
-
+#define IDC_AIS_HDG     110
+#define IDC_AIS_COG     111
+#define IDC_AIS_SOG     112
+#define IDC_AIS_POS     113
