@@ -29,8 +29,12 @@ struct Ctx {
 
     Ctx (): worker (nullptr), running (false), port (INVALID_HANDLE_VALUE), hdg (0.0), cog (0.0), sog (0.0), lat (59.0), lon (29.0) {}
     ~Ctx () {
+        running = false;
+        std::this_thread::sleep_for (std::chrono::milliseconds (200));
         if (worker) {
-            if (worker->joinable ()) worker->join ();
+            if (worker->joinable ()) {
+                worker->join ();
+            }
             delete worker;
         }
     }
@@ -181,8 +185,6 @@ void startStop (HWND wnd) {
     auto ctx = (Ctx *) GetWindowLongPtr (wnd, GWLP_USERDATA);
 
     if (IsDlgButtonChecked (wnd, IDC_START_STOP) == BST_CHECKED) {
-        ctx->running = false;
-        if (ctx->worker->joinable ()) ctx->worker->join ();
         delete ctx->worker;
         ctx->worker = nullptr;
         CheckDlgButton (wnd, IDC_START_STOP, BST_UNCHECKED);
@@ -227,10 +229,10 @@ void startStop (HWND wnd) {
                     AIS::Target ownShip;
                     memset (& ownShip, 0, sizeof (ownShip));
 
-                    ownShip.lat = ctx->useAisPos ? ctx->lat : AIS::DataFlags::NO_LAT;
-                    ownShip.lon = ctx->useAisPos ? ctx->lon : AIS::DataFlags::NO_LON;
-                    ownShip.sog = ctx->useAisSog ? ctx->sog : AIS::DataFlags::NO_SOG;
-                    ownShip.cog = ctx->useAisCog ? ctx->cog : AIS::DataFlags::NO_SOG;
+                    ownShip.lat = ctx->useAisPos ? ctx->lat : AIS::DataFlags::NO_LAT / 600000.0;
+                    ownShip.lon = ctx->useAisPos ? ctx->lon : AIS::DataFlags::NO_LON / 600000.0;
+                    ownShip.sog = ctx->useAisSog ? ctx->sog : AIS::DataFlags::NO_SOG * 0.1;
+                    ownShip.cog = ctx->useAisCog ? ctx->cog : AIS::DataFlags::NO_COG * 0.1;
                     ownShip.hdg = ctx->useAisHdg ? ctx->hdg : AIS::DataFlags::NO_HDG;
                     ownShip.id = 987654321;
                     
@@ -318,6 +320,8 @@ int WINAPI WinMain (HINSTANCE inst, HINSTANCE prevInst, char *cmdLine, int showC
             };
             wndInst->onDestroy = [] (HWND wnd, UINT, WPARAM, LPARAM) -> LRESULT {
                 auto ctx = (Ctx *) GetWindowLongPtr (wnd, GWLP_USERDATA);
+                ctx->running = false;
+                ctx->worker->join ();
                 if (ctx) delete ctx;
                 PostQuitMessage (0);
                 return 0;
